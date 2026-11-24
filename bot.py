@@ -15,7 +15,7 @@ from telegram.ext import (
 
 load_dotenv()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("9132282504:AAE_9Ysj_NM0BkU-rBMKpF_OqncuybiXUnE")
 PTC_URL = "https://club.pokemon.com/"
 
 logging.basicConfig(
