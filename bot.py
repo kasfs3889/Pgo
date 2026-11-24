@@ -1,9 +1,12 @@
 
 import os
+import time
+import logging
+import threading
 import secrets
 import string
-import logging
 
+from flask import Flask, jsonify
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -15,23 +18,56 @@ from telegram.ext import (
 
 load_dotenv()
 
-BOT_TOKEN = os.getenv("9132282504:AAE_9Ysj_NM0BkU-rBMKpF_OqncuybiXUnE")
-PTC_URL = "https://club.pokemon.com/"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+PORT = int(os.getenv("PORT", 10000))
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
+app = Flask(__name__)
+
+bot_status = {
+    "running": False,
+    "last_error": None
+}
+
+
+# Flask health server
+
+@app.route("/")
+def home():
+    return jsonify({
+        "name": "MINATO PTC BOT",
+        "status": "online"
+    })
+
+
+@app.route("/health")
+def health():
+    return jsonify({
+        "status": "healthy",
+        "telegram_bot": bot_status["running"]
+    })
+
+
+# Generators
+
 def generate_username():
     return "Trainer" + "".join(
         secrets.choice(string.digits) for _ in range(8)
     )
 
+
 def generate_password():
     chars = string.ascii_letters + string.digits + "!@#$%"
-    return "".join(secrets.choice(chars) for _ in range(16))
+    return "".join(
+        secrets.choice(chars) for _ in range(16)
+    )
 
+
+# Telegram commands
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -61,19 +97,19 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [InlineKeyboardButton(
-            "🌐 Open PTC Website",
-            url=PTC_URL
+            "🌐 Open Official PTC Website",
+            url="https://club.pokemon.com/"
         )]
     ]
 
     await query.message.reply_text(
         "🎮 REGISTRATION STARTED\n\n"
-        f"Suggested Username: `{username}`\n"
+        f"Suggested Username: `{username}`\n\n"
         f"Suggested Password: `{password}`\n\n"
-        "Complete the official registration yourself.\n"
+        "Complete registration on the official website.\n"
         "CAPTCHA and email verification must be completed "
-        "on the official website.\n\n"
-        "⚠️ Keep your credentials private.",
+        "by you.\n\n"
+        "Keep your password private.",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -81,10 +117,9 @@ async def create(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📚 MINATO PTC BOT HELP\n\n"
         "/start - Start bot\n"
-        "/create - Registration assistant\n"
-        "/help - Help menu"
+        "/create - Start registration\n"
+        "/help - Help"
     )
 
 
@@ -101,19 +136,72 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+# Telegram bot runner
+
+def telegram_runner():
+    while True:
+        try:
+            bot_status["running"] = True
+            bot_status["last_error"] = None
+
+            telegram_app = (
+                Application.builder()
+                .token(BOT_TOKEN)
+                .build()
+            )
+
+            telegram_app.add_handler(
+                CommandHandler("start", start)
+            )
+
+            telegram_app.add_handler(
+                CommandHandler("help", help_command)
+            )
+
+            telegram_app.add_handler(
+                CallbackQueryHandler(buttons)
+            )
+
+            logging.info("Telegram bot starting...")
+
+            telegram_app.run_polling(
+                drop_pending_updates=False
+            )
+
+            logging.warning("Bot polling stopped.")
+
+        except Exception as error:
+            bot_status["last_error"] = str(error)
+            logging.exception("Telegram bot crashed!")
+
+        finally:
+            bot_status["running"] = False
+
+        logging.info("Restarting bot in 10 seconds...")
+        time.sleep(10)
+
+
+# Main
+
 def main():
     if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN missing in environment!")
+        raise RuntimeError("BOT_TOKEN is missing!")
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    bot_thread = threading.Thread(
+        target=telegram_runner,
+        daemon=True
+    )
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CallbackQueryHandler(buttons))
+    bot_thread.start()
 
-    print("MINATO PTC BOT IS RUNNING!")
+    logging.info("Starting Flask server...")
 
-    app.run_polling()
+    app.run(
+        host="0.0.0.0",
+        port=PORT,
+        debug=False,
+        use_reloader=False
+    )
 
 
 if __name__ == "__main__":
